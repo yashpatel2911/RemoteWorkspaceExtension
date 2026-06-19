@@ -20,6 +20,8 @@ export interface AuthPrompts {
     instructions: string,
     prompts: KbPrompt[],
   ): Promise<string[]>;
+  /** The login user's sudo password, needed to elevate to `sudoUser`. */
+  promptSudoPassword(connection: ConnectionConfig, sudoUser: string): Promise<string | undefined>;
 }
 
 /**

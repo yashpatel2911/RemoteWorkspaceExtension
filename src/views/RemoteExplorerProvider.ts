@@ -2,7 +2,6 @@ import * as vscode from 'vscode';
 import { ConnectionStore } from '../config/connectionStore';
 import { ConnectionManager } from '../ssh/ConnectionManager';
 import { Logger } from '../util/logger';
-import * as sftp from '../ssh/sftp';
 import { remoteJoin } from '../util/paths';
 import { ConnectionNode, FolderNode, MessageNode, RemoteEntryNode, TreeNode } from './treeItems';
 
@@ -112,12 +111,11 @@ export class RemoteExplorerProvider
 
   private async browseConnectionRoot(node: ConnectionNode): Promise<TreeNode[]> {
     try {
-      await this.manager.connect(node.config.id);
-      const session = await this.manager.getSftp(node.config.id);
+      const fs = await this.manager.getFs(node.config.id);
       const base =
         node.config.defaultFolder && node.config.defaultFolder.length > 0
           ? node.config.defaultFolder
-          : await sftp.realpath(session, '.');
+          : await fs.realpath('.');
       return this.browseDirectory(node.config.id, base);
     } catch (err) {
       this.logger.error(`Failed to browse ${node.config.id}`, err);
@@ -127,17 +125,17 @@ export class RemoteExplorerProvider
 
   private async browseDirectory(connectionId: string, dir: string): Promise<TreeNode[]> {
     try {
-      const session = await this.manager.getSftp(connectionId);
-      const entries = await sftp.readdir(session, dir);
+      const fs = await this.manager.getFs(connectionId);
+      const entries = await fs.readDirectory(dir);
       return entries
-        .filter((e) => e.filename !== '.' && e.filename !== '..')
+        .filter((e) => e.name !== '.' && e.name !== '..')
         .map(
           (e) =>
             new RemoteEntryNode(
               connectionId,
-              remoteJoin(dir, e.filename),
-              e.attrs.isDirectory(),
-              e.filename,
+              remoteJoin(dir, e.name),
+              e.type === 'directory',
+              e.name,
             ),
         )
         .sort(byFolderThenName);

@@ -18,6 +18,9 @@ interface FormData {
   defaultFolder: string;
   password: string;
   passphrase: string;
+  sudo: boolean;
+  sudoUser: string;
+  sudoPassword: string;
 }
 
 /**
@@ -144,6 +147,8 @@ export class ConnectionEditorPanel {
       agent: form.useAgent ? true : undefined,
       proxyJump: form.proxyJump.trim() || undefined,
       defaultFolder: form.defaultFolder.trim() || undefined,
+      sudo: form.sudo ? true : undefined,
+      sudoUser: form.sudo ? form.sudoUser.trim() || 'root' : undefined,
     };
   }
 
@@ -164,6 +169,9 @@ export class ConnectionEditorPanel {
     }
     if (form.passphrase) {
       await this.deps.secrets.setPassphrase(id, form.passphrase);
+    }
+    if (form.sudoPassword) {
+      await this.deps.secrets.setSudoPassword(id, form.sudoPassword);
     }
   }
 
@@ -199,6 +207,9 @@ export class ConnectionEditorPanel {
     border: 1px solid var(--vscode-input-border, transparent); border-radius: 3px; }
   .row-check { grid-column: 2; display: flex; align-items: center; gap: 8px; }
   .row-check input { width: auto; }
+  .section-sep { grid-column: 1 / -1; margin-top: 12px; padding-top: 12px; font-weight: 600;
+    border-top: 1px solid var(--vscode-input-border, #8886); }
+  .hidden { display: none !important; }
   .actions { display: flex; gap: 8px; margin-top: 22px; max-width: 640px; }
   button { padding: 6px 14px; border: none; border-radius: 3px; cursor: pointer;
     background: var(--vscode-button-background); color: var(--vscode-button-foreground); }
@@ -258,6 +269,20 @@ export class ConnectionEditorPanel {
 
     <label for="passphrase">Key passphrase</label>
     <input id="passphrase" type="password" placeholder="${existing ? '•••••• (leave blank to keep)' : 'optional'}" />
+
+    <div class="section-sep">Run as another user (sudo)</div>
+    <label>Enable</label>
+    <div class="row-check">
+      <input id="sudo" type="checkbox" ${existing?.sudo ? 'checked' : ''} />
+      <span>Open the workspace as another user via sudo (the terminal stays as the login user)</span>
+    </div>
+
+    <label for="sudoUser" class="sudo-row">Sudo user</label>
+    <input id="sudoUser" class="sudo-row" value="${v(existing?.sudoUser ?? 'root')}" placeholder="root" />
+
+    <label for="sudoPassword" class="sudo-row">Sudo password</label>
+    <input id="sudoPassword" class="sudo-row" type="password" placeholder="${existing ? '•••••• (leave blank to keep)' : "your login user's sudo password (optional)"}" />
+    <div class="hint sudo-row">Your <em>login user's</em> sudo password — not the target user's. Leave blank for passwordless sudo or to be prompted at connect.</div>
   </form>
 
   <div class="actions">
@@ -286,8 +311,18 @@ export class ConnectionEditorPanel {
         defaultFolder: $('defaultFolder').value,
         password: $('password').value,
         passphrase: $('passphrase').value,
+        sudo: $('sudo').checked,
+        sudoUser: $('sudoUser').value,
+        sudoPassword: $('sudoPassword').value,
       };
     }
+
+    function syncSudo() {
+      const on = $('sudo').checked;
+      document.querySelectorAll('.sudo-row').forEach((el) => el.classList.toggle('hidden', !on));
+    }
+    $('sudo').addEventListener('change', syncSudo);
+    syncSudo();
 
     $('save').addEventListener('click', () => {
       status.className = '';

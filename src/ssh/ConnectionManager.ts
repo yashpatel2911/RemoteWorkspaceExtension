@@ -6,6 +6,9 @@ import { SecretStore } from '../util/secrets';
 import { Logger } from '../util/logger';
 import { AuthPrompts } from './auth';
 import { SSHConnection, SSHConnectionSettings } from './SSHConnection';
+import { RemoteFs } from './RemoteFs';
+import { SftpFs } from './SftpFs';
+import { SudoFs } from './SudoFs';
 
 export interface ConnectionStateEvent {
   id: string;
@@ -19,6 +22,8 @@ export interface ConnectionStateEvent {
  */
 export class ConnectionManager implements vscode.Disposable {
   private readonly connections = new Map<string, SSHConnection>();
+  private readonly fsCache = new Map<string, RemoteFs>();
+  private readonly storeSub: vscode.Disposable;
 
   private readonly _onDidChangeState = new vscode.EventEmitter<ConnectionStateEvent>();
   readonly onDidChangeState = this._onDidChangeState.event;
@@ -28,7 +33,10 @@ export class ConnectionManager implements vscode.Disposable {
     private readonly secrets: SecretStore,
     private readonly prompts: AuthPrompts,
     private readonly logger: Logger,
-  ) {}
+  ) {
+    // A config edit (e.g. toggling sudo) may change which filesystem to use.
+    this.storeSub = this.store.onDidChange(() => this.fsCache.clear());
+  }
 
   /** Already-created connection, if any (does not create or connect). */
   peek(id: string): SSHConnection | undefined {
@@ -69,6 +77,7 @@ export class ConnectionManager implements vscode.Disposable {
       conn.dispose();
       this.connections.delete(id);
     }
+    this.fsCache.delete(id);
   }
 
   /** Connected SFTP session for a connection, connecting first if needed. */
@@ -77,11 +86,33 @@ export class ConnectionManager implements vscode.Disposable {
     return conn.getSftp();
   }
 
+  /**
+   * The filesystem to use for a connection: SudoFs when the connection opts into
+   * "open as another user", otherwise plain SftpFs. Connects first if needed.
+   */
+  async getFs(id: string): Promise<RemoteFs> {
+    const conn = this.isConnected(id) ? this.getOrCreate(id) : await this.connect(id);
+    let fs = this.fsCache.get(id);
+    if (!fs) {
+      const config = this.store.get(id);
+      fs =
+        config?.sudo && config.sudoUser
+          ? new SudoFs(conn, config, this.secrets, this.prompts, this.logger)
+          : new SftpFs(conn);
+      this.fsCache.set(id, fs);
+    }
+    return fs;
+  }
+
   /** Connect a throwaway connection to validate config, then tear it down. */
   async testConnection(config: ConnectionConfig): Promise<void> {
     const conn = this.createFor(config, /* ephemeral */ true);
     try {
       await this.establish(conn, config);
+      if (config.sudo && config.sudoUser) {
+        // Also verify we can actually elevate, so "Test" reflects real usage.
+        await new SudoFs(conn, config, this.secrets, this.prompts, this.logger).ensureSudo();
+      }
     } finally {
       conn.dispose();
     }
@@ -174,6 +205,8 @@ export class ConnectionManager implements vscode.Disposable {
       conn.dispose();
     }
     this.connections.clear();
+    this.fsCache.clear();
+    this.storeSub.dispose();
     this._onDidChangeState.dispose();
   }
 }

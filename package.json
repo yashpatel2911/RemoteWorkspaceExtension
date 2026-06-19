@@ -330,6 +330,16 @@
               "folder": {
                 "type": "string",
                 "description": "Grouping folder in the Remote Explorer, '/'-separated (e.g. Work/Prod). Empty = root."
+              },
+              "sudo": {
+                "type": "boolean",
+                "default": false,
+                "description": "Open the workspace filesystem as another user via sudo. The terminal stays as the login user."
+              },
+              "sudoUser": {
+                "type": "string",
+                "default": "root",
+                "description": "Target user to switch to when 'sudo' is enabled (e.g. root)."
               }
             }
           }

@@ -30,6 +30,10 @@ export interface ConnectionConfig {
   defaultFolder?: string;
   /** Grouping folder path in the Remote Explorer, "/"-separated. Empty = root. */
   folder?: string;
+  /** Open the workspace filesystem as another user via sudo. */
+  sudo?: boolean;
+  /** Target user to switch to (e.g. 'root') when `sudo` is enabled. */
+  sudoUser?: string;
   source: ConnectionSource;
 }
 
@@ -47,6 +51,10 @@ export interface StoredConnection {
   defaultFolder?: string;
   /** Grouping folder path in the Remote Explorer, "/"-separated. Empty = root. */
   folder?: string;
+  /** Open the workspace filesystem as another user via sudo. */
+  sudo?: boolean;
+  /** Target user to switch to (e.g. 'root') when `sudo` is enabled. */
+  sudoUser?: string;
 }
 
 export interface HostMetadata {
