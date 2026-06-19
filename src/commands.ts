@@ -4,7 +4,7 @@ import { ConnectionManager } from './ssh/ConnectionManager';
 import { SecretStore } from './util/secrets';
 import { Logger } from './util/logger';
 import { RemoteExplorerProvider } from './views/RemoteExplorerProvider';
-import { ConnectionNode, RemoteEntryNode } from './views/treeItems';
+import { ConnectionNode, FolderNode, RemoteEntryNode } from './views/treeItems';
 import { ConnectionEditorPanel } from './webview/ConnectionEditorPanel';
 import { openRemoteTerminal } from './terminal/RemoteTerminal';
 import { ConnectionConfig } from './config/types';
@@ -109,7 +109,107 @@ export function registerCommands(deps: CommandDeps): vscode.Disposable[] {
 
     register('remoteWorkspace.openFolder', (node) => openFolder(node, deps, false)),
     register('remoteWorkspace.openFolderInNewWindow', (node) => openFolder(node, deps, true)),
+
+    register('remoteWorkspace.addFolder', async (node) => {
+      const parent = node instanceof FolderNode ? node.path : '';
+      const name = await vscode.window.showInputBox({
+        title: parent ? `New folder under "${parent}"` : 'New folder',
+        prompt: 'Folder name',
+        ignoreFocusOut: true,
+        validateInput: (v) =>
+          v.includes('/') ? 'Folder name cannot contain "/".' : undefined,
+      });
+      const trimmed = name?.trim();
+      if (!trimmed) {
+        return;
+      }
+      await store.addFolder(parent ? `${parent}/${trimmed}` : trimmed);
+    }),
+
+    register('remoteWorkspace.renameFolder', async (node) => {
+      if (!(node instanceof FolderNode)) {
+        return;
+      }
+      const current = leafName(node.path);
+      const name = await vscode.window.showInputBox({
+        title: `Rename folder "${node.path}"`,
+        value: current,
+        ignoreFocusOut: true,
+        validateInput: (v) =>
+          v.includes('/') ? 'Folder name cannot contain "/".' : undefined,
+      });
+      const trimmed = name?.trim();
+      if (!trimmed || trimmed === current) {
+        return;
+      }
+      const parent = node.path.includes('/')
+        ? node.path.slice(0, node.path.lastIndexOf('/'))
+        : '';
+      await store.renameFolder(node.path, parent ? `${parent}/${trimmed}` : trimmed);
+    }),
+
+    register('remoteWorkspace.deleteFolder', async (node) => {
+      if (!(node instanceof FolderNode)) {
+        return;
+      }
+      const confirm = await vscode.window.showWarningMessage(
+        `Delete folder "${node.path}"? Connections inside move up one level — they are not deleted.`,
+        { modal: true },
+        'Delete',
+      );
+      if (confirm !== 'Delete') {
+        return;
+      }
+      await store.deleteFolder(node.path);
+    }),
+
+    register('remoteWorkspace.moveToFolder', async (node) => {
+      const config = await resolveConnection(node, store, 'Move which connection?');
+      if (!config) {
+        return;
+      }
+      const target = await pickFolder(store, `Move "${store.displayName(config)}" to…`);
+      if (target === undefined) {
+        return;
+      }
+      await store.setConnectionFolder(config.id, target.folder);
+    }),
   ];
+}
+
+function leafName(path: string): string {
+  return path.includes('/') ? path.slice(path.lastIndexOf('/') + 1) : path;
+}
+
+/** Pick a destination folder. Returns undefined on cancel, or { folder } (folder undefined = root). */
+async function pickFolder(
+  store: ConnectionStore,
+  placeholder: string,
+): Promise<{ folder: string | undefined } | undefined> {
+  type Item = vscode.QuickPickItem & { folder?: string; action?: 'new' };
+  const items: Item[] = [
+    { label: '$(home) Root (no folder)', folder: undefined },
+    ...store.listFolders().map((f): Item => ({ label: `$(folder) ${f}`, folder: f })),
+    { label: '$(add) New folder…', action: 'new' },
+  ];
+  const picked = await vscode.window.showQuickPick(items, { placeHolder: placeholder });
+  if (!picked) {
+    return undefined;
+  }
+  if (picked.action === 'new') {
+    const name = await vscode.window.showInputBox({
+      title: 'New folder',
+      prompt: 'Folder path (use "/" to nest, e.g. Work/Prod)',
+      ignoreFocusOut: true,
+    });
+    const trimmed = name?.trim();
+    if (!trimmed) {
+      return undefined;
+    }
+    await store.addFolder(trimmed);
+    return { folder: trimmed };
+  }
+  return { folder: picked.folder };
 }
 
 async function openFolder(node: unknown, deps: CommandDeps, newWindow: boolean): Promise<void> {

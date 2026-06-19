@@ -17,10 +17,15 @@ locked‑down or embedded hosts that can't run a remote server — and it runs o
   detection** (warns before overwriting a file that changed on the server).
 - **Remote Explorer** tree in the activity bar listing all connections and
   letting you browse the remote filesystem.
+- **Organize connections into nestable folders** — create folders/subfolders,
+  rename them, and move connections in by **drag‑and‑drop** or a
+  *Move to Folder…* command. Deleting a folder keeps its connections (they move
+  up one level). Folders are stored in settings, so they persist.
 - **Two ways to define connections**:
   - automatically read from your existing **`~/.ssh/config`**, and
   - a **webview editor** to create/edit/**test** connections.
-- **Integrated terminal over SSH** (real interactive shell in the panel).
+- **Integrated terminal over SSH** — a real interactive shell in the panel,
+  opened from the **inline terminal icon** on each connection (or the menu).
 - **Authentication**: private key (+passphrase), password, SSH **agent**
   (incl. Pageant on Windows), **ProxyJump** bastion hosts, and
   **keyboard‑interactive / 2FA**.
@@ -80,7 +85,8 @@ npx @vscode/vsce package        # produce a .vsix
 | Setting | Description |
 | --- | --- |
 | `remoteWorkspace.connections` | User‑defined connections (no secrets). |
-| `remoteWorkspace.hostMetadata` | Label/default‑folder overrides for `~/.ssh/config` hosts. |
+| `remoteWorkspace.folders` | Folder paths for grouping connections in the tree (managed via the tree's folder actions). |
+| `remoteWorkspace.hostMetadata` | Label/default‑folder/group overrides for `~/.ssh/config` hosts. |
 | `remoteWorkspace.showSshConfigHosts` | Show `~/.ssh/config` hosts in the tree. |
 | `remoteWorkspace.sshConfigPath` | Override the OpenSSH config path. |
 | `remoteWorkspace.connectTimeoutMs` | Handshake timeout. |

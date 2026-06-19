@@ -112,6 +112,30 @@
         "title": "Refresh",
         "category": "Remote Workspace",
         "icon": "$(refresh)"
+      },
+      {
+        "command": "remoteWorkspace.addFolder",
+        "title": "New Folder",
+        "category": "Remote Workspace",
+        "icon": "$(new-folder)"
+      },
+      {
+        "command": "remoteWorkspace.renameFolder",
+        "title": "Rename Folder",
+        "category": "Remote Workspace",
+        "icon": "$(edit)"
+      },
+      {
+        "command": "remoteWorkspace.deleteFolder",
+        "title": "Delete Folder",
+        "category": "Remote Workspace",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "remoteWorkspace.moveToFolder",
+        "title": "Move to Folder",
+        "category": "Remote Workspace",
+        "icon": "$(folder)"
       }
     ],
     "menus": {
@@ -122,9 +146,14 @@
           "group": "navigation@1"
         },
         {
-          "command": "remoteWorkspace.refresh",
+          "command": "remoteWorkspace.addFolder",
           "when": "view == remoteWorkspaceExplorer",
           "group": "navigation@2"
+        },
+        {
+          "command": "remoteWorkspace.refresh",
+          "when": "view == remoteWorkspaceExplorer",
+          "group": "navigation@3"
         }
       ],
       "view/item/context": [
@@ -151,6 +180,11 @@
         {
           "command": "remoteWorkspace.openTerminal",
           "when": "view == remoteWorkspaceExplorer && viewItem =~ /^connection\\./",
+          "group": "inline@2"
+        },
+        {
+          "command": "remoteWorkspace.openTerminal",
+          "when": "view == remoteWorkspaceExplorer && viewItem =~ /^connection\\./",
           "group": "navigation@3"
         },
         {
@@ -159,14 +193,39 @@
           "group": "navigation@1"
         },
         {
+          "command": "remoteWorkspace.moveToFolder",
+          "when": "view == remoteWorkspaceExplorer && viewItem =~ /^connection\\./",
+          "group": "manage@1"
+        },
+        {
           "command": "remoteWorkspace.editConnection",
           "when": "view == remoteWorkspaceExplorer && viewItem =~ /settings$/",
-          "group": "manage@1"
+          "group": "manage@2"
         },
         {
           "command": "remoteWorkspace.deleteConnection",
           "when": "view == remoteWorkspaceExplorer && viewItem =~ /settings$/",
+          "group": "manage@3"
+        },
+        {
+          "command": "remoteWorkspace.addFolder",
+          "when": "view == remoteWorkspaceExplorer && viewItem == folder",
+          "group": "inline@1"
+        },
+        {
+          "command": "remoteWorkspace.addFolder",
+          "when": "view == remoteWorkspaceExplorer && viewItem == folder",
+          "group": "manage@1"
+        },
+        {
+          "command": "remoteWorkspace.renameFolder",
+          "when": "view == remoteWorkspaceExplorer && viewItem == folder",
           "group": "manage@2"
+        },
+        {
+          "command": "remoteWorkspace.deleteFolder",
+          "when": "view == remoteWorkspaceExplorer && viewItem == folder",
+          "group": "manage@3"
         }
       ],
       "commandPalette": [
@@ -188,6 +247,18 @@
         },
         {
           "command": "remoteWorkspace.openTerminal",
+          "when": "false"
+        },
+        {
+          "command": "remoteWorkspace.renameFolder",
+          "when": "false"
+        },
+        {
+          "command": "remoteWorkspace.deleteFolder",
+          "when": "false"
+        },
+        {
+          "command": "remoteWorkspace.moveToFolder",
           "when": "false"
         }
       ]
@@ -255,14 +326,26 @@
               "defaultFolder": {
                 "type": "string",
                 "description": "Remote absolute path to open by default (defaults to the login home directory)."
+              },
+              "folder": {
+                "type": "string",
+                "description": "Grouping folder in the Remote Explorer, '/'-separated (e.g. Work/Prod). Empty = root."
               }
             }
+          }
+        },
+        "remoteWorkspace.folders": {
+          "type": "array",
+          "default": [],
+          "markdownDescription": "Folder paths used to group connections in the Remote Explorer, '/'-separated (e.g. `Work/Prod`). Managed via the tree's folder actions; persists empty folders.",
+          "items": {
+            "type": "string"
           }
         },
         "remoteWorkspace.hostMetadata": {
           "type": "object",
           "default": {},
-          "markdownDescription": "Extra metadata for hosts read from ~/.ssh/config, keyed by host alias. Each value may contain `label` and `defaultFolder`.",
+          "markdownDescription": "Extra metadata for hosts read from ~/.ssh/config, keyed by host alias. Each value may contain `label`, `defaultFolder`, and `folder`.",
           "additionalProperties": {
             "type": "object",
             "properties": {
@@ -271,6 +354,10 @@
               },
               "defaultFolder": {
                 "type": "string"
+              },
+              "folder": {
+                "type": "string",
+                "description": "Grouping folder in the Remote Explorer, '/'-separated. Empty = root."
               }
             }
           }
@@ -315,7 +402,7 @@
     "@types/node": "^20.14.0",
     "@types/ssh2": "^1.15.0",
     "@types/vscode": "^1.85.0",
-    "esbuild": "^0.23.0",
+    "esbuild": "^0.25.0",
     "typescript": "^5.5.0"
   }
 }

@@ -4,7 +4,9 @@ import { ConnectionManager } from '../ssh/ConnectionManager';
 import { Logger } from '../util/logger';
 import * as sftp from '../ssh/sftp';
 import { remoteJoin } from '../util/paths';
-import { ConnectionNode, MessageNode, RemoteEntryNode, TreeNode } from './treeItems';
+import { ConnectionNode, FolderNode, MessageNode, RemoteEntryNode, TreeNode } from './treeItems';
+
+const CONNECTION_MIME = 'application/vnd.remoteworkspace.connection';
 
 /**
  * Tree for the Remote Workspace activity-bar view. Root level lists every
@@ -12,10 +14,16 @@ import { ConnectionNode, MessageNode, RemoteEntryNode, TreeNode } from './treeIt
  * remote filesystem starting at its default folder (or the login home).
  */
 export class RemoteExplorerProvider
-  implements vscode.TreeDataProvider<TreeNode>, vscode.Disposable
+  implements
+    vscode.TreeDataProvider<TreeNode>,
+    vscode.TreeDragAndDropController<TreeNode>,
+    vscode.Disposable
 {
   private readonly _onDidChangeTreeData = new vscode.EventEmitter<TreeNode | undefined | void>();
   readonly onDidChangeTreeData = this._onDidChangeTreeData.event;
+
+  readonly dragMimeTypes = [CONNECTION_MIME];
+  readonly dropMimeTypes = [CONNECTION_MIME];
 
   private readonly subscriptions: vscode.Disposable[] = [];
 
@@ -40,16 +48,11 @@ export class RemoteExplorerProvider
 
   async getChildren(element?: TreeNode): Promise<TreeNode[]> {
     if (!element) {
-      return this.store
-        .list()
-        .map(
-          (config) =>
-            new ConnectionNode(
-              config,
-              this.manager.isConnected(config.id),
-              this.store.displayName(config),
-            ),
-        );
+      return this.folderLevel('');
+    }
+
+    if (element.kind === 'folder') {
+      return this.folderLevel(element.path);
     }
 
     if (element.kind === 'connection') {
@@ -61,6 +64,50 @@ export class RemoteExplorerProvider
     }
 
     return [];
+  }
+
+  /** Subfolders then connections that live directly under `parent` ('' = root). */
+  private folderLevel(parent: string): TreeNode[] {
+    const folders = this.store.childFolders(parent).map((p) => new FolderNode(p));
+    const connections = this.store
+      .list()
+      .filter((c) => (c.folder ?? '') === parent)
+      .map(
+        (c) =>
+          new ConnectionNode(c, this.manager.isConnected(c.id), this.store.displayName(c)),
+      );
+    return [...folders, ...connections];
+  }
+
+  // ---- Drag and drop: move connections between folders ----------------------
+
+  handleDrag(source: readonly TreeNode[], dataTransfer: vscode.DataTransfer): void {
+    const ids = source
+      .filter((n): n is ConnectionNode => n.kind === 'connection')
+      .map((n) => n.config.id);
+    if (ids.length > 0) {
+      dataTransfer.set(CONNECTION_MIME, new vscode.DataTransferItem(ids));
+    }
+  }
+
+  async handleDrop(target: TreeNode | undefined, dataTransfer: vscode.DataTransfer): Promise<void> {
+    const item = dataTransfer.get(CONNECTION_MIME);
+    if (!item) {
+      return;
+    }
+    const ids = item.value as string[];
+    let folder: string | undefined;
+    if (target?.kind === 'folder') {
+      folder = target.path;
+    } else if (target?.kind === 'connection') {
+      folder = target.config.folder; // drop onto a connection => same folder
+    } else {
+      folder = undefined; // empty space => root
+    }
+    for (const id of ids) {
+      await this.store.setConnectionFolder(id, folder);
+    }
+    this.refresh();
   }
 
   private async browseConnectionRoot(node: ConnectionNode): Promise<TreeNode[]> {
