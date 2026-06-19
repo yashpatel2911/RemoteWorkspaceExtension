@@ -99,6 +99,8 @@ export class ConnectionStore implements vscode.Disposable {
       proxyJump: stored.proxyJump,
       defaultFolder: stored.defaultFolder,
       folder: this.normalizeFolderPath(stored.folder ?? '') || undefined,
+      sudo: stored.sudo,
+      sudoUser: stored.sudoUser,
       source: 'settings',
     };
   }

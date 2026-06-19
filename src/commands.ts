@@ -9,7 +9,6 @@ import { ConnectionEditorPanel } from './webview/ConnectionEditorPanel';
 import { openRemoteTerminal } from './terminal/RemoteTerminal';
 import { ConnectionConfig } from './config/types';
 import { toUri } from './fs/uri';
-import * as sftp from './ssh/sftp';
 
 export interface CommandDeps {
   store: ConnectionStore;
@@ -250,9 +249,8 @@ async function resolveFolder(
   }
   let home = '/';
   try {
-    await manager.connect(config.id);
-    const session = await manager.getSftp(config.id);
-    home = await sftp.realpath(session, '.');
+    const fs = await manager.getFs(config.id);
+    home = await fs.realpath('.');
   } catch (err) {
     vscode.window.showErrorMessage(`Could not connect: ${(err as Error).message}`);
     return undefined;

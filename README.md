@@ -26,6 +26,12 @@ locked‑down or embedded hosts that can't run a remote server — and it runs o
   - a **webview editor** to create/edit/**test** connections.
 - **Integrated terminal over SSH** — a real interactive shell in the panel,
   opened from the **inline terminal icon** on each connection (or the menu).
+- **Open as another user (sudo)** — opt in per connection to read/write the
+  workspace as `root` or another local user, when you log in as an unprivileged
+  account. File ops run via `sudo -u <user>`; the **terminal stays as the login
+  user**. Sudo auth auto‑detects: passwordless if your sudoers allows it,
+  otherwise it prompts once for your login user's sudo password and (optionally)
+  saves it in SecretStorage.
 - **Authentication**: private key (+passphrase), password, SSH **agent**
   (incl. Pageant on Windows), **ProxyJump** bastion hosts, and
   **keyboard‑interactive / 2FA**.
@@ -103,3 +109,9 @@ settings.
 - Cross‑connection moves are not supported (single‑host SFTP rename only).
 - ProxyJump supports chained jumps; multi‑factor on the jump host reuses the
   same interactive prompts.
+- **Sudo mode** runs file operations as per‑operation `sudo -u <user>` shell
+  commands (ssh2 can't cleanly elevate the sftp‑server), so it's a little slower
+  than plain SFTP on very large trees (directory listings are batched to
+  compensate). It requires your login user to have sudo rights for the target on
+  the host — ideally a `NOPASSWD` sudoers rule or the default sudo timestamp; a
+  `requiretty` sudoers policy may need adjusting (exec runs without a PTY).

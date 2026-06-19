@@ -37,6 +37,29 @@ export class VscodeAuthPrompts implements AuthPrompts {
     return value;
   }
 
+  async promptSudoPassword(
+    connection: ConnectionConfig,
+    sudoUser: string,
+  ): Promise<string | undefined> {
+    const value = await vscode.window.showInputBox({
+      title: `Sudo password for ${this.who(connection)}`,
+      prompt: `Enter ${connection.username || 'your'} login user's sudo password to switch to "${sudoUser}"`,
+      password: true,
+      ignoreFocusOut: true,
+    });
+    if (value) {
+      const choice = await vscode.window.showInformationMessage(
+        'Save this sudo password securely so you are not asked again?',
+        'Save',
+        'Not now',
+      );
+      if (choice === 'Save') {
+        await this.secrets.setSudoPassword(connection.id, value);
+      }
+    }
+    return value;
+  }
+
   /** Handle ssh2 keyboard-interactive (2FA / OTP / challenge-response). */
   async promptKeyboardInteractive(
     connection: ConnectionConfig,

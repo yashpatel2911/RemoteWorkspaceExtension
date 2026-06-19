@@ -2,41 +2,36 @@ import * as vscode from 'vscode';
 import { ConnectionManager } from '../ssh/ConnectionManager';
 import { Logger } from '../util/logger';
 import { fromUri } from './uri';
-import * as sftp from '../ssh/sftp';
-
-/** SFTP status code for "no such file". */
-const SFTP_NO_SUCH_FILE = 2;
-const SFTP_PERMISSION_DENIED = 3;
-const SFTP_FAILURE = 4;
+import { RemoteFsError, RemoteStat } from '../ssh/RemoteFs';
 
 function isNotFound(err: unknown): boolean {
-  const e = err as { code?: number | string; message?: string };
-  return (
-    e?.code === SFTP_NO_SUCH_FILE ||
-    e?.code === 'ENOENT' ||
-    /no such file/i.test(e?.message ?? '')
-  );
+  return err instanceof RemoteFsError && err.code === 'ENOENT';
 }
 
 function toFsError(err: unknown, uri: vscode.Uri): vscode.FileSystemError {
-  const e = err as { code?: number | string; message?: string };
-  if (isNotFound(err)) {
-    return vscode.FileSystemError.FileNotFound(uri);
+  if (err instanceof vscode.FileSystemError) {
+    return err;
   }
-  if (e?.code === SFTP_PERMISSION_DENIED || e?.code === 'EACCES') {
-    return vscode.FileSystemError.NoPermissions(uri);
+  if (err instanceof RemoteFsError) {
+    switch (err.code) {
+      case 'ENOENT':
+        return vscode.FileSystemError.FileNotFound(uri);
+      case 'EACCES':
+        return vscode.FileSystemError.NoPermissions(uri);
+      case 'EEXIST':
+        return vscode.FileSystemError.FileExists(uri);
+      default:
+        return vscode.FileSystemError.Unavailable(`${err.message} (${uri.toString()})`);
+    }
   }
-  if (e?.code === SFTP_FAILURE && /exist/i.test(e?.message ?? '')) {
-    return vscode.FileSystemError.FileExists(uri);
-  }
-  return vscode.FileSystemError.Unavailable(`${e?.message ?? String(err)} (${uri.toString()})`);
+  return vscode.FileSystemError.Unavailable(`${String(err)} (${uri.toString()})`);
 }
 
 /**
- * Implements VS Code's FileSystemProvider over SFTP. Each method resolves the
- * connection from the URI authority, grabs a (cached) SFTP session, and
- * performs a live operation — no local mirror. Saves are write-through with
- * remote mtime change detection.
+ * Implements VS Code's FileSystemProvider over a RemoteFs (plain SFTP, or
+ * sudo-elevated shell commands when the connection opts in). Each method
+ * resolves the connection from the URI authority and performs a live operation —
+ * no local mirror. Saves are write-through with remote mtime change detection.
  */
 export class RemoteFileSystemProvider implements vscode.FileSystemProvider, vscode.Disposable {
   private readonly _onDidChangeFile = new vscode.EventEmitter<vscode.FileChangeEvent[]>();
@@ -58,9 +53,8 @@ export class RemoteFileSystemProvider implements vscode.FileSystemProvider, vsco
   async stat(uri: vscode.Uri): Promise<vscode.FileStat> {
     const { id, path } = fromUri(uri);
     try {
-      const session = await this.manager.getSftp(id);
-      const stats = await sftp.stat(session, path);
-      return this.toFileStat(stats);
+      const fs = await this.manager.getFs(id);
+      return this.toFileStat(await fs.stat(path));
     } catch (err) {
       throw toFsError(err, uri);
     }
@@ -69,19 +63,18 @@ export class RemoteFileSystemProvider implements vscode.FileSystemProvider, vsco
   async readDirectory(uri: vscode.Uri): Promise<[string, vscode.FileType][]> {
     const { id, path } = fromUri(uri);
     try {
-      const session = await this.manager.getSftp(id);
-      const entries = await sftp.readdir(session, path);
+      const fs = await this.manager.getFs(id);
+      const entries = await fs.readDirectory(path);
       return entries.map((entry) => {
-        const a = entry.attrs;
         let type: vscode.FileType;
-        if (a.isDirectory()) {
+        if (entry.type === 'directory') {
           type = vscode.FileType.Directory;
-        } else if (a.isSymbolicLink()) {
+        } else if (entry.type === 'symlink') {
           type = vscode.FileType.File | vscode.FileType.SymbolicLink;
         } else {
           type = vscode.FileType.File;
         }
-        return [entry.filename, type] as [string, vscode.FileType];
+        return [entry.name, type] as [string, vscode.FileType];
       });
     } catch (err) {
       throw toFsError(err, uri);
@@ -91,8 +84,8 @@ export class RemoteFileSystemProvider implements vscode.FileSystemProvider, vsco
   async createDirectory(uri: vscode.Uri): Promise<void> {
     const { id, path } = fromUri(uri);
     try {
-      const session = await this.manager.getSftp(id);
-      await sftp.mkdir(session, path);
+      const fs = await this.manager.getFs(id);
+      await fs.createDirectory(path);
       this.fire(uri, vscode.FileChangeType.Created);
     } catch (err) {
       throw toFsError(err, uri);
@@ -102,10 +95,10 @@ export class RemoteFileSystemProvider implements vscode.FileSystemProvider, vsco
   async readFile(uri: vscode.Uri): Promise<Uint8Array> {
     const { id, path } = fromUri(uri);
     try {
-      const session = await this.manager.getSftp(id);
-      const stats = await sftp.stat(session, path);
-      this.knownMtimes.set(uri.toString(), stats.mtime * 1000);
-      return await sftp.readFile(session, path);
+      const fs = await this.manager.getFs(id);
+      const stats = await fs.stat(path);
+      this.knownMtimes.set(uri.toString(), stats.mtimeMs);
+      return await fs.readFile(path);
     } catch (err) {
       throw toFsError(err, uri);
     }
@@ -118,12 +111,11 @@ export class RemoteFileSystemProvider implements vscode.FileSystemProvider, vsco
   ): Promise<void> {
     const { id, path } = fromUri(uri);
     try {
-      const session = await this.manager.getSftp(id);
+      const fs = await this.manager.getFs(id);
 
       let existingMtimeMs: number | undefined;
       try {
-        const stats = await sftp.stat(session, path);
-        existingMtimeMs = stats.mtime * 1000;
+        existingMtimeMs = (await fs.stat(path)).mtimeMs;
       } catch (err) {
         if (!isNotFound(err)) {
           throw err;
@@ -138,7 +130,7 @@ export class RemoteFileSystemProvider implements vscode.FileSystemProvider, vsco
         throw vscode.FileSystemError.FileExists(uri);
       }
 
-      if (exists && (await this.isExternallyChanged(uri, existingMtimeMs!))) {
+      if (exists && this.isExternallyChanged(uri, existingMtimeMs!)) {
         this.logger.warn(`Remote file changed since open: ${uri.toString()}`);
         const choice = await vscode.window.showWarningMessage(
           `"${path}" has changed on the remote since you opened it. Overwrite the remote version with your local changes?`,
@@ -150,14 +142,10 @@ export class RemoteFileSystemProvider implements vscode.FileSystemProvider, vsco
         }
       }
 
-      await sftp.writeFile(session, path, Buffer.from(content));
-      const after = await sftp.stat(session, path);
-      this.knownMtimes.set(uri.toString(), after.mtime * 1000);
+      await fs.writeFile(path, Buffer.from(content));
+      this.knownMtimes.set(uri.toString(), (await fs.stat(path)).mtimeMs);
       this.fire(uri, exists ? vscode.FileChangeType.Changed : vscode.FileChangeType.Created);
     } catch (err) {
-      if (err instanceof vscode.FileSystemError) {
-        throw err;
-      }
       throw toFsError(err, uri);
     }
   }
@@ -165,17 +153,8 @@ export class RemoteFileSystemProvider implements vscode.FileSystemProvider, vsco
   async delete(uri: vscode.Uri, options: { recursive: boolean }): Promise<void> {
     const { id, path } = fromUri(uri);
     try {
-      const session = await this.manager.getSftp(id);
-      const stats = await sftp.lstat(session, path);
-      if (stats.isDirectory()) {
-        if (options.recursive) {
-          await sftp.rmrf(session, path);
-        } else {
-          await sftp.rmdir(session, path);
-        }
-      } else {
-        await sftp.unlink(session, path);
-      }
+      const fs = await this.manager.getFs(id);
+      await fs.delete(path, options);
       this.knownMtimes.delete(uri.toString());
       this.fire(uri, vscode.FileChangeType.Deleted);
     } catch (err) {
@@ -194,22 +173,8 @@ export class RemoteFileSystemProvider implements vscode.FileSystemProvider, vsco
       throw vscode.FileSystemError.Unavailable('Moving across connections is not supported.');
     }
     try {
-      const session = await this.manager.getSftp(from.id);
-      if (options.overwrite) {
-        try {
-          const target = await sftp.lstat(session, to.path);
-          if (target.isDirectory()) {
-            await sftp.rmrf(session, to.path);
-          } else {
-            await sftp.unlink(session, to.path);
-          }
-        } catch (err) {
-          if (!isNotFound(err)) {
-            throw err;
-          }
-        }
-      }
-      await sftp.rename(session, from.path, to.path);
+      const fs = await this.manager.getFs(from.id);
+      await fs.rename(from.path, to.path, options);
       this.knownMtimes.delete(oldUri.toString());
       this.fire(oldUri, vscode.FileChangeType.Deleted);
       this.fire(newUri, vscode.FileChangeType.Created);
@@ -218,25 +183,24 @@ export class RemoteFileSystemProvider implements vscode.FileSystemProvider, vsco
     }
   }
 
-  private async isExternallyChanged(uri: vscode.Uri, currentMtimeMs: number): Promise<boolean> {
+  private isExternallyChanged(uri: vscode.Uri, currentMtimeMs: number): boolean {
     const known = this.knownMtimes.get(uri.toString());
     return known !== undefined && currentMtimeMs > known;
   }
 
-  private toFileStat(stats: import('ssh2').Stats): vscode.FileStat {
+  private toFileStat(stats: RemoteStat): vscode.FileStat {
     let type: vscode.FileType;
-    if (stats.isDirectory()) {
+    if (stats.type === 'directory') {
       type = vscode.FileType.Directory;
-    } else if (stats.isSymbolicLink()) {
+    } else if (stats.type === 'symlink') {
       type = vscode.FileType.SymbolicLink;
     } else {
       type = vscode.FileType.File;
     }
-    const mtimeMs = stats.mtime * 1000;
     return {
       type,
-      ctime: mtimeMs,
-      mtime: mtimeMs,
+      ctime: stats.mtimeMs,
+      mtime: stats.mtimeMs,
       size: stats.size,
     };
   }
