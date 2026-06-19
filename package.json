@@ -1,0 +1,321 @@
+{
+  "name": "remote-workspace",
+  "displayName": "Remote Workspace (SSH/SFTP)",
+  "description": "Open any remote Linux folder over SSH/SFTP, edit files natively, and open remote terminals — no remote server install required.",
+  "version": "0.0.1",
+  "publisher": "remote-workspace",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/your-org/RemoteWorkspaceExtension"
+  },
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "keywords": [
+    "ssh",
+    "sftp",
+    "remote",
+    "filesystem",
+    "terminal"
+  ],
+  "main": "./dist/extension.js",
+  "activationEvents": [
+    "onFileSystem:ssh"
+  ],
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "remoteWorkspace",
+          "title": "Remote Workspace",
+          "icon": "resources/icons/remote.svg"
+        }
+      ]
+    },
+    "views": {
+      "remoteWorkspace": [
+        {
+          "id": "remoteWorkspaceExplorer",
+          "name": "Connections",
+          "icon": "resources/icons/remote.svg",
+          "contextualTitle": "Remote Workspace"
+        }
+      ]
+    },
+    "viewsWelcome": [
+      {
+        "view": "remoteWorkspaceExplorer",
+        "contents": "No connections yet.\n[Add Connection](command:remoteWorkspace.addConnection)\nConnections are also read from your ~/.ssh/config automatically."
+      }
+    ],
+    "commands": [
+      {
+        "command": "remoteWorkspace.addConnection",
+        "title": "Add Connection",
+        "category": "Remote Workspace",
+        "icon": "$(add)"
+      },
+      {
+        "command": "remoteWorkspace.editConnection",
+        "title": "Edit Connection",
+        "category": "Remote Workspace",
+        "icon": "$(edit)"
+      },
+      {
+        "command": "remoteWorkspace.deleteConnection",
+        "title": "Delete Connection",
+        "category": "Remote Workspace",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "remoteWorkspace.connect",
+        "title": "Connect",
+        "category": "Remote Workspace",
+        "icon": "$(plug)"
+      },
+      {
+        "command": "remoteWorkspace.disconnect",
+        "title": "Disconnect",
+        "category": "Remote Workspace",
+        "icon": "$(debug-disconnect)"
+      },
+      {
+        "command": "remoteWorkspace.openFolder",
+        "title": "Open Remote Folder",
+        "category": "Remote Workspace",
+        "icon": "$(folder-opened)"
+      },
+      {
+        "command": "remoteWorkspace.openFolderInNewWindow",
+        "title": "Open Remote Folder in New Window",
+        "category": "Remote Workspace",
+        "icon": "$(empty-window)"
+      },
+      {
+        "command": "remoteWorkspace.openTerminal",
+        "title": "Open Remote Terminal",
+        "category": "Remote Workspace",
+        "icon": "$(terminal)"
+      },
+      {
+        "command": "remoteWorkspace.testConnection",
+        "title": "Test Connection",
+        "category": "Remote Workspace",
+        "icon": "$(pulse)"
+      },
+      {
+        "command": "remoteWorkspace.refresh",
+        "title": "Refresh",
+        "category": "Remote Workspace",
+        "icon": "$(refresh)"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "remoteWorkspace.addConnection",
+          "when": "view == remoteWorkspaceExplorer",
+          "group": "navigation@1"
+        },
+        {
+          "command": "remoteWorkspace.refresh",
+          "when": "view == remoteWorkspaceExplorer",
+          "group": "navigation@2"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "remoteWorkspace.connect",
+          "when": "view == remoteWorkspaceExplorer && viewItem =~ /^connection\\.disconnected/",
+          "group": "inline@1"
+        },
+        {
+          "command": "remoteWorkspace.disconnect",
+          "when": "view == remoteWorkspaceExplorer && viewItem =~ /^connection\\.connected/",
+          "group": "inline@1"
+        },
+        {
+          "command": "remoteWorkspace.openFolder",
+          "when": "view == remoteWorkspaceExplorer && viewItem =~ /^connection\\./",
+          "group": "navigation@1"
+        },
+        {
+          "command": "remoteWorkspace.openFolderInNewWindow",
+          "when": "view == remoteWorkspaceExplorer && viewItem =~ /^connection\\./",
+          "group": "navigation@2"
+        },
+        {
+          "command": "remoteWorkspace.openTerminal",
+          "when": "view == remoteWorkspaceExplorer && viewItem =~ /^connection\\./",
+          "group": "navigation@3"
+        },
+        {
+          "command": "remoteWorkspace.openFolder",
+          "when": "view == remoteWorkspaceExplorer && viewItem == remoteFolder",
+          "group": "navigation@1"
+        },
+        {
+          "command": "remoteWorkspace.editConnection",
+          "when": "view == remoteWorkspaceExplorer && viewItem =~ /settings$/",
+          "group": "manage@1"
+        },
+        {
+          "command": "remoteWorkspace.deleteConnection",
+          "when": "view == remoteWorkspaceExplorer && viewItem =~ /settings$/",
+          "group": "manage@2"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "remoteWorkspace.connect",
+          "when": "false"
+        },
+        {
+          "command": "remoteWorkspace.disconnect",
+          "when": "false"
+        },
+        {
+          "command": "remoteWorkspace.editConnection",
+          "when": "false"
+        },
+        {
+          "command": "remoteWorkspace.deleteConnection",
+          "when": "false"
+        },
+        {
+          "command": "remoteWorkspace.openTerminal",
+          "when": "false"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Remote Workspace",
+      "properties": {
+        "remoteWorkspace.connections": {
+          "type": "array",
+          "default": [],
+          "markdownDescription": "User-defined SSH connections. Secrets (passwords/passphrases) are NOT stored here — they live in VS Code SecretStorage.",
+          "items": {
+            "type": "object",
+            "required": [
+              "id",
+              "host",
+              "username"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "description": "Unique id. Also used as the URI authority (ssh://<id>/path)."
+              },
+              "label": {
+                "type": "string",
+                "description": "Display name shown in the Remote Explorer."
+              },
+              "host": {
+                "type": "string",
+                "description": "Hostname or IP address."
+              },
+              "port": {
+                "type": "number",
+                "default": 22
+              },
+              "username": {
+                "type": "string"
+              },
+              "authMethod": {
+                "type": "string",
+                "enum": [
+                  "auto",
+                  "agent",
+                  "key",
+                  "password"
+                ],
+                "default": "auto",
+                "description": "auto tries agent, then key, then password."
+              },
+              "privateKeyPath": {
+                "type": "string",
+                "description": "Path to a private key file (e.g. ~/.ssh/id_ed25519)."
+              },
+              "agent": {
+                "type": [
+                  "string",
+                  "boolean"
+                ],
+                "description": "Use an SSH agent. true = auto-detect (SSH_AUTH_SOCK / pageant), or an explicit socket path."
+              },
+              "proxyJump": {
+                "type": "string",
+                "description": "Single jump host: [user@]host[:port], or the id of another configured connection."
+              },
+              "defaultFolder": {
+                "type": "string",
+                "description": "Remote absolute path to open by default (defaults to the login home directory)."
+              }
+            }
+          }
+        },
+        "remoteWorkspace.hostMetadata": {
+          "type": "object",
+          "default": {},
+          "markdownDescription": "Extra metadata for hosts read from ~/.ssh/config, keyed by host alias. Each value may contain `label` and `defaultFolder`.",
+          "additionalProperties": {
+            "type": "object",
+            "properties": {
+              "label": {
+                "type": "string"
+              },
+              "defaultFolder": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "remoteWorkspace.showSshConfigHosts": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show hosts defined in ~/.ssh/config in the Remote Explorer."
+        },
+        "remoteWorkspace.sshConfigPath": {
+          "type": "string",
+          "default": "",
+          "description": "Override path to the OpenSSH config file. Empty = ~/.ssh/config."
+        },
+        "remoteWorkspace.connectTimeoutMs": {
+          "type": "number",
+          "default": 20000,
+          "description": "SSH connection handshake timeout in milliseconds."
+        },
+        "remoteWorkspace.keepaliveIntervalMs": {
+          "type": "number",
+          "default": 15000,
+          "description": "Interval for SSH keepalive packets in milliseconds (0 disables)."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run package",
+    "compile": "node esbuild.js",
+    "watch": "node esbuild.js --watch",
+    "package": "node esbuild.js --production",
+    "check-types": "tsc --noEmit",
+    "pretest": "npm run compile && npm run check-types",
+    "vscode:package": "vsce package"
+  },
+  "dependencies": {
+    "ssh-config": "^5.0.3",
+    "ssh2": "^1.16.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "@types/ssh2": "^1.15.0",
+    "@types/vscode": "^1.85.0",
+    "esbuild": "^0.23.0",
+    "typescript": "^5.5.0"
+  }
+}
