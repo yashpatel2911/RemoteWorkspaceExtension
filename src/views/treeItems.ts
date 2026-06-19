@@ -2,6 +2,20 @@ import * as vscode from 'vscode';
 import { ConnectionConfig } from '../config/types';
 import { toUri } from '../fs/uri';
 
+/** A grouping folder that holds connections and/or subfolders. */
+export class FolderNode extends vscode.TreeItem {
+  readonly kind = 'folder' as const;
+
+  constructor(readonly path: string) {
+    const name = path.includes('/') ? path.slice(path.lastIndexOf('/') + 1) : path;
+    super(name, vscode.TreeItemCollapsibleState.Collapsed);
+    this.id = `folder:${path}`;
+    this.contextValue = 'folder';
+    this.iconPath = vscode.ThemeIcon.Folder;
+    this.tooltip = path;
+  }
+}
+
 /** A configured connection at the root of the tree. */
 export class ConnectionNode extends vscode.TreeItem {
   readonly kind = 'connection' as const;
@@ -82,4 +96,4 @@ export class MessageNode extends vscode.TreeItem {
   }
 }
 
-export type TreeNode = ConnectionNode | RemoteEntryNode | MessageNode;
+export type TreeNode = FolderNode | ConnectionNode | RemoteEntryNode | MessageNode;

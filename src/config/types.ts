@@ -28,6 +28,8 @@ export interface ConnectionConfig {
   proxyJump?: string;
   /** Remote absolute path to open by default. Empty = login home directory. */
   defaultFolder?: string;
+  /** Grouping folder path in the Remote Explorer, "/"-separated. Empty = root. */
+  folder?: string;
   source: ConnectionSource;
 }
 
@@ -43,9 +45,13 @@ export interface StoredConnection {
   agent?: string | boolean;
   proxyJump?: string;
   defaultFolder?: string;
+  /** Grouping folder path in the Remote Explorer, "/"-separated. Empty = root. */
+  folder?: string;
 }
 
 export interface HostMetadata {
   label?: string;
   defaultFolder?: string;
+  /** Grouping folder path in the Remote Explorer, "/"-separated. Empty = root. */
+  folder?: string;
 }

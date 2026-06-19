@@ -29,6 +29,8 @@ export function activate(context: vscode.ExtensionContext): void {
   const explorer = new RemoteExplorerProvider(store, manager, logger);
   const treeView = vscode.window.createTreeView('remoteWorkspaceExplorer', {
     treeDataProvider: explorer,
+    dragAndDropController: explorer,
+    canSelectMany: true,
     showCollapseAll: true,
   });
 
