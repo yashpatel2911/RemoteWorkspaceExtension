@@ -20,6 +20,14 @@ interface ExecResult {
 const VALID_USER = /^[A-Za-z0-9._-]+$/;
 
 /**
+ * Run sudo from "/" rather than the login user's home. The SSH session's cwd is
+ * the login user's home (e.g. /home/yashpatel2911), which the target user often
+ * can't access; `find` restores its initial cwd on exit and would fail there.
+ * "/" is accessible to everyone, so any cwd-sensitive command is safe.
+ */
+const FROM_ACCESSIBLE_CWD = 'cd / && ';
+
+/**
  * Filesystem that performs every operation as another user via `sudo -u <user>`,
  * driven by shell commands over the existing SSH `exec` channel (ssh2 cannot
  * cleanly elevate the sftp-server). Auth is auto-detected: passwordless if the
@@ -170,7 +178,7 @@ export class SudoFs implements RemoteFs {
 
     // 1) Probe non-interactively. This also tells us if the run-as user is even
     //    permitted, before bothering the user for a password.
-    const probe = await this.exec(`sudo -n -u ${q(this.user)} -- true`);
+    const probe = await this.exec(`${FROM_ACCESSIBLE_CWD}sudo -n -u ${q(this.user)} -- true`);
     if (probe.code === 0) {
       this.mode = 'nopasswd';
       return;
@@ -219,7 +227,7 @@ export class SudoFs implements RemoteFs {
   /** Authenticate once with the password to confirm it works and is permitted. */
   private async verifyPassword(password: string): Promise<'ok' | 'badpass' | 'denied' | 'tty' | 'error'> {
     const res = await this.exec(
-      `sudo -k -S -p '' -u ${q(this.user)} -- true`,
+      `${FROM_ACCESSIBLE_CWD}sudo -k -S -p '' -u ${q(this.user)} -- true`,
       Buffer.from(`${password}\n`),
     );
     if (res.code === 0) {
@@ -250,9 +258,12 @@ export class SudoFs implements RemoteFs {
     if (this.mode === 'password') {
       const credential = Buffer.from(`${this.password}\n`);
       const input = stdin ? Buffer.concat([credential, stdin]) : credential;
-      return this.exec(`sudo -k -S -p '' -u ${q(this.user)} -- ${inner}`, input);
+      return this.exec(
+        `${FROM_ACCESSIBLE_CWD}sudo -k -S -p '' -u ${q(this.user)} -- ${inner}`,
+        input,
+      );
     }
-    return this.exec(`sudo -n -u ${q(this.user)} -- ${inner}`, stdin);
+    return this.exec(`${FROM_ACCESSIBLE_CWD}sudo -n -u ${q(this.user)} -- ${inner}`, stdin);
   }
 
   private deniedError(detail: string): RemoteFsError {
