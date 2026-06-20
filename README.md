@@ -112,6 +112,14 @@ settings.
 - **Sudo mode** runs file operations as per‑operation `sudo -u <user>` shell
   commands (ssh2 can't cleanly elevate the sftp‑server), so it's a little slower
   than plain SFTP on very large trees (directory listings are batched to
-  compensate). It requires your login user to have sudo rights for the target on
-  the host — ideally a `NOPASSWD` sudoers rule or the default sudo timestamp; a
-  `requiretty` sudoers policy may need adjusting (exec runs without a PTY).
+  compensate). Notes:
+  - The **target must be a user your login account is allowed to `sudo` to** —
+    typically `root`, **not your own login user** (sudo‑to‑self is usually
+    rejected by sudoers). The extension detects an unpermitted target up front
+    and tells you, without prompting for a password.
+  - When a password is required, it's your **login user's** sudo password. It's
+    supplied to sudo on every command's stdin (sudo timestamps aren't reliable
+    across separate SSH exec channels), so a `NOPASSWD` sudoers rule is fastest
+    but not required.
+  - A `requiretty` sudoers policy isn't supported (exec runs without a PTY) —
+    remove `Defaults requiretty` or add a `NOPASSWD` rule for the target.

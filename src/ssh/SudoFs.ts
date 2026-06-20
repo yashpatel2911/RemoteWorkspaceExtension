@@ -33,6 +33,10 @@ export class SudoFs implements RemoteFs {
   private readonly user: string;
   private validated = false;
   private validating?: Promise<void>;
+  /** Whether the sudoers policy lets us run without a password, decided once. */
+  private mode: 'nopasswd' | 'password' | undefined;
+  /** Login user's sudo password, kept in memory for this session (password mode). */
+  private password?: string;
 
   constructor(
     private readonly conn: SSHConnection,
@@ -163,10 +167,23 @@ export class SudoFs implements RemoteFs {
     if (!VALID_USER.test(this.user)) {
       throw new RemoteFsError('EACCES', `Invalid sudo user "${this.user}".`);
     }
-    if (await this.canSudoNonInteractive()) {
+
+    // 1) Probe non-interactively. This also tells us if the run-as user is even
+    //    permitted, before bothering the user for a password.
+    const probe = await this.exec(`sudo -n -u ${q(this.user)} -- true`);
+    if (probe.code === 0) {
+      this.mode = 'nopasswd';
       return;
     }
-    // A password is required: try stored secret first, then prompt.
+    const probeKind = sudoStderrKind(probe.stderr);
+    if (probeKind === 'denied') {
+      throw this.deniedError(probe.stderr);
+    }
+    if (probeKind === 'tty') {
+      throw this.ttyError(probe.stderr);
+    }
+
+    // 2) A password is required. Use stored secret first, then prompt.
     let password = await this.secrets.getSudoPassword(this.config.id);
     const fromStore = !!password;
     if (!password) {
@@ -175,42 +192,84 @@ export class SudoFs implements RemoteFs {
     if (!password) {
       throw new RemoteFsError('EACCES', 'Sudo password is required to elevate.');
     }
-    let ok = await this.refreshTimestamp(password);
-    if (!ok && fromStore) {
-      // Stored password was rejected — prompt for a fresh one once.
+
+    let verdict = await this.verifyPassword(password);
+    if (verdict === 'badpass' && fromStore) {
       this.logger.warn(`Stored sudo password rejected for ${this.config.id}; re-prompting`);
-      password = await this.prompts.promptSudoPassword(this.config, this.user);
-      ok = !!password && (await this.refreshTimestamp(password));
+      const fresh = await this.prompts.promptSudoPassword(this.config, this.user);
+      if (fresh) {
+        password = fresh;
+        verdict = await this.verifyPassword(password);
+      }
     }
-    if (!ok) {
+    if (verdict === 'denied') {
+      throw this.deniedError('sudo refused the run-as user');
+    }
+    if (verdict === 'tty') {
+      throw this.ttyError('sudo requires a TTY');
+    }
+    if (verdict !== 'ok') {
       throw new RemoteFsError('EACCES', 'Sudo authentication failed — check your sudo password.');
     }
-    if (!(await this.canSudoNonInteractive())) {
-      throw new RemoteFsError('EACCES', `Not permitted to run commands as "${this.user}" via sudo.`);
+
+    this.mode = 'password';
+    this.password = password;
+  }
+
+  /** Authenticate once with the password to confirm it works and is permitted. */
+  private async verifyPassword(password: string): Promise<'ok' | 'badpass' | 'denied' | 'tty' | 'error'> {
+    const res = await this.exec(
+      `sudo -k -S -p '' -u ${q(this.user)} -- true`,
+      Buffer.from(`${password}\n`),
+    );
+    if (res.code === 0) {
+      return 'ok';
     }
+    const kind = sudoStderrKind(res.stderr);
+    if (kind === 'denied') {
+      return 'denied';
+    }
+    if (kind === 'tty') {
+      return 'tty';
+    }
+    if (kind === 'password' || /try again|incorrect password|sorry/i.test(res.stderr)) {
+      return 'badpass';
+    }
+    return 'error';
   }
 
-  private async canSudoNonInteractive(): Promise<boolean> {
-    const res = await this.exec(`sudo -n -u ${q(this.user)} -- true`);
-    return res.code === 0;
-  }
-
-  /** `sudo -S -v` refreshes the invoking user's sudo timestamp. */
-  private async refreshTimestamp(password: string): Promise<boolean> {
-    const res = await this.exec(`sudo -S -p '' -v`, Buffer.from(`${password}\n`));
-    return res.code === 0;
-  }
-
+  /**
+   * Run a command as the target user. In password mode the sudo password is
+   * supplied on stdin for EVERY command (sudo reads the first line, the command
+   * inherits the rest) — sudo timestamps are unreliable across separate exec
+   * channels, so we never depend on a cached timestamp. `-k` forces a fresh auth
+   * so the password line is always consumed and never leaks to the command.
+   */
   private async runSudo(inner: string, stdin?: Buffer): Promise<ExecResult> {
     await this.ensureSudo();
-    let res = await this.exec(`sudo -n -u ${q(this.user)} -- ${inner}`, stdin);
-    if (res.code !== 0 && /a password is required/i.test(res.stderr)) {
-      // sudo timestamp expired mid-session: revalidate once and retry.
-      this.validated = false;
-      await this.ensureSudo();
-      res = await this.exec(`sudo -n -u ${q(this.user)} -- ${inner}`, stdin);
+    if (this.mode === 'password') {
+      const credential = Buffer.from(`${this.password}\n`);
+      const input = stdin ? Buffer.concat([credential, stdin]) : credential;
+      return this.exec(`sudo -k -S -p '' -u ${q(this.user)} -- ${inner}`, input);
     }
-    return res;
+    return this.exec(`sudo -n -u ${q(this.user)} -- ${inner}`, stdin);
+  }
+
+  private deniedError(detail: string): RemoteFsError {
+    const login = this.config.username || 'your login user';
+    return new RemoteFsError(
+      'EACCES',
+      `"${login}" is not permitted by the sudoers policy on ${this.config.host} to run commands as "${this.user}". ` +
+        `Pick a permitted target (commonly "root"), or add a sudoers rule. (${detail.trim()})`,
+    );
+  }
+
+  private ttyError(detail: string): RemoteFsError {
+    return new RemoteFsError(
+      'EACCES',
+      `sudo on ${this.config.host} requires a TTY ('Defaults requiretty'), which this mode cannot provide. ` +
+        `Remove requiretty or add a NOPASSWD rule for "${this.user}". (${detail.trim()})`,
+    );
   }
 
   private async statQuiet(path: string): Promise<RemoteStat | undefined> {
@@ -277,6 +336,23 @@ function findCodeToType(code: string): RemoteFileType {
     return 'symlink';
   }
   return 'file';
+}
+
+/** Interpret sudo's own stderr (auth failures, not the wrapped command's). */
+function sudoStderrKind(stderr: string): 'password' | 'denied' | 'tty' | 'other' {
+  const s = stderr.toLowerCase();
+  if (
+    /not in the sudoers file|not allowed to (execute|run)|may not run sudo|is not allowed to run|unknown user/.test(s)
+  ) {
+    return 'denied';
+  }
+  if (/you must have a tty|requires? a tty|no tty present/.test(s)) {
+    return 'tty';
+  }
+  if (/a password is required|^\s*password:/.test(s)) {
+    return 'password';
+  }
+  return 'other';
 }
 
 function classify(stderr: string): RemoteFsError {

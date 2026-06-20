@@ -279,6 +279,7 @@ export class ConnectionEditorPanel {
 
     <label for="sudoUser" class="sudo-row">Sudo user</label>
     <input id="sudoUser" class="sudo-row" value="${v(existing?.sudoUser ?? 'root')}" placeholder="root" />
+    <div class="hint sudo-row">Usually <code>root</code>. Must be a user your login account is allowed to <code>sudo</code> to — not your own login user.</div>
 
     <label for="sudoPassword" class="sudo-row">Sudo password</label>
     <input id="sudoPassword" class="sudo-row" type="password" placeholder="${existing ? '•••••• (leave blank to keep)' : "your login user's sudo password (optional)"}" />
